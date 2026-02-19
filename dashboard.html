@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QUANT — Arbitrage Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #050a0e;
+      --surface: #0b1318;
+      --border: #112030;
+      --accent: #00ffe1;
+      --accent-dim: rgba(0,255,225,0.08);
+      --accent-mid: rgba(0,255,225,0.25);
+      --red: #ff3b5c;
+      --red-dim: rgba(255,59,92,0.1);
+      --yellow: #ffd166;
+      --text: #c8dde8;
+      --text-dim: #4a6a7a;
+      --mono: 'Share Tech Mono', monospace;
+      --display: 'Bebas Neue', sans-serif;
+      --body: 'DM Sans', sans-serif;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--body);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Scanline overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.08) 2px,
+        rgba(0,0,0,0.08) 4px
+      );
+      pointer-events: none;
+      z-index: 999;
+    }
+
+    /* Glow background */
+    body::after {
+      content: '';
+      position: fixed;
+      top: -20%;
+      left: -10%;
+      width: 60%;
+      height: 60%;
+      background: radial-gradient(ellipse, rgba(0,255,225,0.04) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 32px;
+      border-bottom: 1px solid var(--border);
+      position: relative;
+    }
+
+    .logo {
+      font-family: var(--display);
+      font-size: 2.2rem;
+      letter-spacing: 0.12em;
+      color: var(--accent);
+      text-shadow: 0 0 24px rgba(0,255,225,0.5);
+    }
+
+    .logo span {
+      color: var(--text-dim);
+      font-size: 0.85rem;
+      font-family: var(--mono);
+      letter-spacing: 0.2em;
+      display: block;
+      margin-top: -4px;
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--text-dim);
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    .dot.offline { background: var(--red); box-shadow: 0 0 8px var(--red); animation: none; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    main {
+      padding: 28px 32px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: auto auto auto;
+      gap: 20px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    /* Alert banner */
+    .alert-banner {
+      grid-column: 1 / -1;
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .alert-banner.visible { display: flex; }
+
+    .alert-item {
+      background: var(--red-dim);
+      border: 1px solid var(--red);
+      border-left: 4px solid var(--red);
+      padding: 14px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      animation: slideIn 0.3s ease;
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .alert-market {
+      font-family: var(--display);
+      font-size: 1.1rem;
+      letter-spacing: 0.1em;
+      color: var(--red);
+    }
+
+    .alert-detail {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+
+    .alert-value {
+      font-family: var(--mono);
+      font-size: 1.1rem;
+      color: var(--red);
+      text-shadow: 0 0 12px rgba(255,59,92,0.5);
+    }
+
+    /* Cards */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      opacity: 0.3;
+    }
+
+    .card-label {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.25em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+
+    /* Forex table */
+    .price-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .price-table tr {
+      border-bottom: 1px solid var(--border);
+      transition: background 0.2s;
+    }
+
+    .price-table tr:last-child { border-bottom: none; }
+    .price-table tr:hover { background: var(--accent-dim); }
+
+    .price-table td {
+      padding: 12px 0;
+      font-family: var(--mono);
+      font-size: 0.82rem;
+    }
+
+    .pair-name {
+      color: var(--text-dim);
+      width: 100px;
+    }
+
+    .price-val {
+      font-size: 1.05rem;
+      color: var(--text);
+      letter-spacing: 0.05em;
+    }
+
+    .price-change {
+      text-align: right;
+      font-size: 0.75rem;
+    }
+
+    .up { color: var(--accent); }
+    .down { color: var(--red); }
+    .flat { color: var(--text-dim); }
+
+    /* Spread card */
+    .spread-card {
+      grid-column: 1 / -1;
+    }
+
+    .spread-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 1px;
+      background: var(--border);
+    }
+
+    .spread-cell {
+      background: var(--surface);
+      padding: 20px;
+      text-align: center;
+    }
+
+    .spread-label {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.2em;
+      color: var(--text-dim);
+      margin-bottom: 8px;
+    }
+
+    .spread-value {
+      font-family: var(--display);
+      font-size: 2.4rem;
+      letter-spacing: 0.05em;
+      line-height: 1;
+    }
+
+    .spread-value.highlight {
+      color: var(--accent);
+      text-shadow: 0 0 20px rgba(0,255,225,0.4);
+    }
+
+    .spread-value.alert {
+      color: var(--red);
+      text-shadow: 0 0 20px rgba(255,59,92,0.4);
+    }
+
+    .spread-sub {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      margin-top: 6px;
+    }
+
+    /* Threshold bar */
+    .threshold-bar-wrap {
+      margin-top: 16px;
+    }
+
+    .threshold-bar-label {
+      display: flex;
+      justify-content: space-between;
+      font-family: var(--mono);
+      font-size: 0.62rem;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+
+    .threshold-bar {
+      height: 3px;
+      background: var(--border);
+      position: relative;
+      overflow: visible;
+    }
+
+    .threshold-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--yellow));
+      transition: width 1s ease;
+    }
+
+    .threshold-fill.over { background: linear-gradient(90deg, var(--yellow), var(--red)); }
+
+    .threshold-marker {
+      position: absolute;
+      top: -3px;
+      width: 2px;
+      height: 9px;
+      background: var(--text-dim);
+    }
+
+    /* History feed */
+    .history-feed {
+      max-height: 220px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    .history-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; } to { opacity: 1; }
+    }
+
+    .history-time { color: var(--text-dim); }
+    .history-spread { color: var(--text); }
+    .history-flag { color: var(--red); font-size: 0.65rem; }
+
+    /* Timestamp */
+    #last-updated {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--text-dim);
+    }
+
+    /* Loading state */
+    .loading {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      animation: blink 1s step-end infinite;
+    }
+
+    @keyframes blink {
+      50% { opacity: 0; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    QUANT
+    <span>ARBITRAGE MONITOR</span>
+  </div>
+  <div class="status-bar">
+    <div class="status-indicator">
+      <div class="dot" id="status-dot"></div>
+      <span id="status-text">CONNECTING</span>
+    </div>
+    <span id="last-updated">--:--:--</span>
+  </div>
+</header>
+
+<main>
+
+  <!-- Alert Banner -->
+  <div class="alert-banner" id="alert-banner"></div>
+
+  <!-- FOREX Card -->
+  <div class="card">
+    <div class="card-label">// FOREX PAIRS</div>
+    <table class="price-table" id="forex-table">
+      <tr><td colspan="3" class="loading">FETCHING DATA...</td></tr>
+    </table>
+  </div>
+
+  <!-- Oil Card -->
+  <div class="card">
+    <div class="card-label">// CRUDE OIL FUTURES</div>
+    <table class="price-table" id="oil-table">
+      <tr><td colspan="3" class="loading">FETCHING DATA...</td></tr>
+    </table>
+  </div>
+
+  <!-- Spread Card -->
+  <div class="card spread-card">
+    <div class="card-label">// BRENT — WTI SPREAD  (PRIMARY ARBITRAGE SIGNAL)</div>
+    <div class="spread-grid">
+      <div class="spread-cell">
+        <div class="spread-label">WTI CRUDE</div>
+        <div class="spread-value" id="wti-val">—</div>
+        <div class="spread-sub">USD / BBL</div>
+      </div>
+      <div class="spread-cell">
+        <div class="spread-label">SPREAD</div>
+        <div class="spread-value highlight" id="spread-val">—</div>
+        <div class="spread-sub" id="spread-direction">BRENT PREMIUM</div>
+        <div class="threshold-bar-wrap">
+          <div class="threshold-bar-label">
+            <span id="spread-min-label">MIN $-1</span>
+            <span id="spread-max-label">MAX $5</span>
+          </div>
+          <div class="threshold-bar">
+            <div class="threshold-fill" id="spread-bar" style="width:0%"></div>
+          </div>
+        </div>
+      </div>
+      <div class="spread-cell">
+        <div class="spread-label">BRENT CRUDE</div>
+        <div class="spread-value" id="brent-val">—</div>
+        <div class="spread-sub">USD / BBL</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- History Card -->
+  <div class="card spread-card">
+    <div class="card-label">// SPREAD HISTORY</div>
+    <div class="history-feed" id="history-feed">
+      <div class="loading">AWAITING DATA...</div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+  const API = 'http://localhost:8000';
+  const SPREAD_MIN = -1;
+  const SPREAD_MAX = 5;
+  const spreadHistory = [];
+
+  function formatChange(change, pct) {
+    const arrow = change >= 0 ? '▲' : '▼';
+    const cls = change > 0 ? 'up' : change < 0 ? 'down' : 'flat';
+    return `<span class="${cls}">${arrow} ${Math.abs(pct).toFixed(3)}%</span>`;
+  }
+
+  function setStatus(online) {
+    document.getElementById('status-dot').className = 'dot' + (online ? '' : ' offline');
+    document.getElementById('status-text').textContent = online ? 'LIVE' : 'OFFLINE';
+  }
+
+  function updateForex(forex) {
+    const rows = Object.entries(forex).map(([name, d]) => `
+      <tr>
+        <td class="pair-name">${name}</td>
+        <td class="price-val">${d.price?.toFixed(5) ?? '—'}</td>
+        <td class="price-change">${formatChange(d.change, d.change_pct)}</td>
+      </tr>
+    `).join('');
+    document.getElementById('forex-table').innerHTML = rows;
+  }
+
+  function updateOil(commodities) {
+    const rows = Object.entries(commodities).map(([name, d]) => `
+      <tr>
+        <td class="pair-name">${name.replace(' Crude Oil','').replace(' Oil','')}</td>
+        <td class="price-val">$${d.price?.toFixed(2) ?? '—'}</td>
+        <td class="price-change">${formatChange(d.change, d.change_pct)}</td>
+      </tr>
+    `).join('');
+    document.getElementById('oil-table').innerHTML = rows;
+  }
+
+  function updateSpread(commodities) {
+    const wti = commodities['WTI Crude Oil']?.price;
+    const brent = commodities['Brent Crude Oil']?.price;
+    if (!wti || !brent) return;
+
+    const spread = +(brent - wti).toFixed(3);
+    document.getElementById('wti-val').textContent = '$' + wti.toFixed(2);
+    document.getElementById('brent-val').textContent = '$' + brent.toFixed(2);
+
+    const spreadEl = document.getElementById('spread-val');
+    spreadEl.textContent = (spread >= 0 ? '+' : '') + '$' + spread.toFixed(2);
+    spreadEl.className = 'spread-value ' + (Math.abs(spread) > SPREAD_MAX || spread < SPREAD_MIN ? 'alert' : 'highlight');
+
+    document.getElementById('spread-direction').textContent =
+      spread > 0 ? 'BRENT PREMIUM' : spread < 0 ? 'WTI PREMIUM' : 'NO SPREAD';
+
+    // Threshold bar: map spread from [min, max] to [0%, 100%]
+    const range = SPREAD_MAX - SPREAD_MIN;
+    const pct = Math.min(100, Math.max(0, ((spread - SPREAD_MIN) / range) * 100));
+    const bar = document.getElementById('spread-bar');
+    bar.style.width = pct + '%';
+    bar.className = 'threshold-fill' + (spread > SPREAD_MAX ? ' over' : '');
+
+    // Add to history
+    const now = new Date().toLocaleTimeString();
+    spreadHistory.unshift({ time: now, spread, alert: spread > SPREAD_MAX || spread < SPREAD_MIN });
+    if (spreadHistory.length > 50) spreadHistory.pop();
+
+    const feed = document.getElementById('history-feed');
+    feed.innerHTML = spreadHistory.map(h => `
+      <div class="history-row">
+        <span class="history-time">${h.time}</span>
+        <span class="history-spread">${(h.spread >= 0 ? '+' : '')}$${h.spread.toFixed(3)}</span>
+        ${h.alert ? '<span class="history-flag">⚠ BREACH</span>' : '<span></span>'}
+      </div>
+    `).join('');
+  }
+
+  function updateAlerts(alerts) {
+    const banner = document.getElementById('alert-banner');
+    if (!alerts.length) {
+      banner.className = 'alert-banner';
+      return;
+    }
+    banner.className = 'alert-banner visible';
+    banner.innerHTML = alerts.map(a => `
+      <div class="alert-item">
+        <div>
+          <div class="alert-market">⚠ ${a.market}</div>
+          <div class="alert-detail">${a.direction.replace('_', ' ').toUpperCase()} THRESHOLD — ${a.timestamp}</div>
+        </div>
+        <div class="alert-value">${a.type === 'OIL_SPREAD' ? '$' : ''}${a.value}</div>
+      </div>
+    `).join('');
+  }
+
+  async function fetchAndUpdate() {
+    try {
+      const [pricesRes, alertsRes] = await Promise.all([
+        fetch(`${API}/prices`),
+        fetch(`${API}/alerts`)
+      ]);
+      const prices = await pricesRes.json();
+      const alertData = await alertsRes.json();
+
+      if (prices.status === 'ok' && prices.data) {
+        setStatus(true);
+        document.getElementById('last-updated').textContent =
+          'UPDATED ' + new Date().toLocaleTimeString();
+        updateForex(prices.data.forex);
+        updateOil(prices.data.commodities);
+        updateSpread(prices.data.commodities);
+      }
+
+      updateAlerts(alertData.alerts || []);
+
+    } catch (e) {
+      setStatus(false);
+    }
+  }
+
+  // Initial fetch + poll every 5s
+  fetchAndUpdate();
+  setInterval(fetchAndUpdate, 5000);
+</script>
+
+</body>
+</html>
